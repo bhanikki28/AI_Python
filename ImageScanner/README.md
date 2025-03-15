@@ -32,3 +32,7 @@
 
     pip freeze -l > requirements.txt 
 
+    For Image Captioning with LangChain
+
+    # installing required libraries in my_env
+    pip install langchain==0.1.11 gradio==4.44.0 transformers==4.38.2 bs4==0.0.2 requests==2.31.0 torch==2.2.1
