@@ -15,5 +15,10 @@ SimpleFinanceApp using Streamlit and Pandas
     streamlit start main.py
     This will run the app in port 8501 accessible via : http://localhost:8501
 
+### EDA 
+
+    1. Data Cleanup
+    2. Removing the null value
+
 
 
