@@ -9,6 +9,7 @@
 
     ollama list -- to view the list of models
     
+    ollama
 
 
 ## Library
