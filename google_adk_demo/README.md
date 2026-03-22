@@ -5,7 +5,7 @@
     source google_adk_demo/bin/activate
 
 
-### Install Libraries
+### Install Libraries for Google ADK
 
     pip3 install google-adk
     pip3 install python-dotenv
