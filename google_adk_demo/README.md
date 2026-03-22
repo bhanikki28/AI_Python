@@ -18,3 +18,9 @@
 https://www.kaggle.com/code/kaggle5daysofai/day-1b-agent-architectures
 
 ### Configure the Agent
+
+
+### Running the Agent
+
+    adk web
+    Access the application via : http://127.0.0.1:8000
