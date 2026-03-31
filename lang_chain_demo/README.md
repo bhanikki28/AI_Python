@@ -30,6 +30,10 @@
 
 
 
+###  Understanding
 
+    - model can be invoked (Stream/Batch)
+        - model.stream()
+        - model.batch()
 
 
