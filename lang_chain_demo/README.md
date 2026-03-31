@@ -36,4 +36,6 @@
         - model.stream()
         - model.batch()
 
-
+    - model can be bind with tools
+        - model_with_tools = model.bind_tools([get_weather])
+        - model_with_tools.invoke()
