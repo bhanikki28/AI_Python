@@ -16,7 +16,7 @@ test:
 	$(BIN)/pytest -q
 
 eval:
-	@echo "evals land in Phase 2"
+	@echo "evals land in Phase 3"
 
 verify: lint test eval
 
