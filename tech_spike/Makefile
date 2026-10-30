@@ -2,7 +2,7 @@ PY ?= python3
 VENV := .venv
 BIN := $(VENV)/bin
 
-.PHONY: setup lint test eval verify run clean
+.PHONY: setup lint test eval dataset verify run clean
 
 setup:
 	$(PY) -m venv $(VENV)
@@ -10,13 +10,16 @@ setup:
 	$(BIN)/pip install -e ".[dev]" -q
 
 lint:
-	$(BIN)/ruff check src tests
+	$(BIN)/ruff check src tests evals
 
 test:
 	$(BIN)/pytest -q
 
 eval:
-	@echo "evals land in Phase 3"
+	$(BIN)/python -m evals.run_evals
+
+dataset:
+	$(BIN)/python -m evals.generate_dataset
 
 verify: lint test eval
 

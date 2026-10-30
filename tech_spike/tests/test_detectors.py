@@ -37,10 +37,23 @@ def test_detects_each_entity_type(text, expected):
         "Call us on 1300 650 000 or 1800 123 456.",
         "Postcode 2000, unit 12, 45 George St.",
         "I waited 3 weeks and 2 days.",
+        "Case escalated on 01-02-2026.",
+        "On 2026-03-14 at 10:45 the login failed.",
     ],
 )
 def test_no_false_positives_on_benign_numbers(text):
     assert detect(text) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "BSB 062-000 account number 123456",
+        "Direct debit from BSB 062-000 acct 654321 bounced",
+    ],
+)
+def test_nearest_keyword_wins_between_bsb_and_account(text):
+    assert types(text) == ["BSB", "ACCOUNT_NUMBER"]
 
 
 def test_invalid_checksum_still_redacted_by_fallback():

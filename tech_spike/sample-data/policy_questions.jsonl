@@ -1,0 +1,24 @@
+{"id": "q-001", "question": "Can I send a customer's credit card number to an LLM?", "expected": ["DH-2.1"]}
+{"id": "q-002", "question": "What do I do with a tax file number in a complaint?", "expected": ["DH-3.1"]}
+{"id": "q-003", "question": "Is it ok to put email addresses in application logs?", "expected": ["DH-5.1", "DH-4.1"]}
+{"id": "q-004", "question": "The gate blocked my text, how do I get an override?", "expected": ["DH-7.2"]}
+{"id": "q-005", "question": "How long do we keep redacted text?", "expected": ["DH-5.2"]}
+{"id": "q-006", "question": "Can I process a customer list export?", "expected": ["DH-6.1"]}
+{"id": "q-007", "question": "Can I share data with a vendor?", "expected": ["DH-2.2", "DH-1.1"]}
+{"id": "q-008", "question": "A customer gave us their Medicare card number, what now?", "expected": ["DH-3.2"]}
+{"id": "q-009", "question": "Should BSB and bank account numbers be masked before analytics?", "expected": ["DH-2.2"]}
+{"id": "q-010", "question": "Is a sole trader ABN personal information?", "expected": ["DH-3.3"]}
+{"id": "q-011", "question": "What happens if the inspection engine errors or the text is too large?", "expected": ["DH-1.2"]}
+{"id": "q-012", "question": "Do I need to scan the model output again?", "expected": ["DH-7.1"]}
+{"id": "q-013", "question": "Can staff paste customer names and street addresses into AI tools?", "expected": ["DH-4.3"]}
+{"id": "q-014", "question": "What about a long number I can't identify, like a membership number?", "expected": ["DH-4.2"]}
+{"id": "q-015", "question": "Which channels does this standard cover, chatbots and case notes?", "expected": ["DH-1.1"]}
+{"id": "q-016", "question": "Can mobile phone numbers go to the chatbot?", "expected": ["DH-4.1"]}
+{"id": "q-017", "question": "What should application logs contain?", "expected": ["DH-5.1"]}
+{"id": "q-018", "question": "Is PCI DSS relevant to card masking?", "expected": ["DH-2.1"]}
+{"id": "q-101", "question": "What's the weather in Sydney tomorrow?", "expected": []}
+{"id": "q-102", "question": "Give me a chocolate cake recipe", "expected": []}
+{"id": "q-103", "question": "What is our holiday leave policy?", "expected": []}
+{"id": "q-104", "question": "How do I reset my laptop password?", "expected": []}
+{"id": "q-105", "question": "Who won the footy grand final?", "expected": []}
+{"id": "q-106", "question": "What is the capital of France?", "expected": []}

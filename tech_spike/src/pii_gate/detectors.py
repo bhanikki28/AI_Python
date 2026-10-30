@@ -30,10 +30,18 @@ class Finding:
     end: int
     method: str
     context_hit: bool = False
+    context_distance: int = CONTEXT_WINDOW  # chars between keyword and match
 
     @property
-    def rank(self) -> tuple[int, bool, int]:
-        return (STRENGTH[self.method], self.context_hit, self.end - self.start)
+    def rank(self) -> tuple[int, bool, int, int]:
+        # Among equally strong candidates the one with the nearest keyword wins,
+        # e.g. "BSB 062-000 account 123456": the 6 digits belong to "account".
+        return (
+            STRENGTH[self.method],
+            self.context_hit,
+            -self.context_distance,
+            self.end - self.start,
+        )
 
     def to_dict(self) -> dict:
         # Deliberately excludes the matched value.
@@ -59,10 +67,15 @@ class Detector:
             if self.validate and not self.validate(m.group()):
                 continue
             window = text[max(0, m.start() - CONTEXT_WINDOW) : m.start()]
-            context_hit = bool(self.context and self.context.search(window))
-            if self.require_context and not context_hit:
+            keyword = None
+            if self.context:
+                keyword = next(reversed(list(self.context.finditer(window))), None)
+            if self.require_context and keyword is None:
                 continue
-            yield Finding(self.entity_type, m.start(), m.end(), self.method, context_hit)
+            distance = len(window) - keyword.end() if keyword else CONTEXT_WINDOW
+            yield Finding(
+                self.entity_type, m.start(), m.end(), self.method, keyword is not None, distance
+            )
 
 
 def _digit_pattern(body: str) -> re.Pattern[str]:
@@ -73,9 +86,13 @@ def _keywords(*words: str) -> re.Pattern[str]:
     return re.compile(r"\b(?:" + "|".join(words) + r")\b", re.IGNORECASE)
 
 
-def _not_business_number(value: str) -> bool:
+DATE_SHAPED = re.compile(r"\d{1,2}-\d{1,2}-\d{4}|\d{4}-\d{1,2}-\d{1,2}")
+
+
+def _fallback_candidate(value: str) -> bool:
+    """Exclude known benign long numbers: 1300/1800 business lines and hyphenated dates."""
     digits = "".join(ch for ch in value if ch.isdigit())
-    return not digits.startswith(("1300", "1800"))
+    return not digits.startswith(("1300", "1800")) and not DATE_SHAPED.fullmatch(value)
 
 
 DETECTORS: tuple[Detector, ...] = (
@@ -145,7 +162,7 @@ DETECTORS: tuple[Detector, ...] = (
         "NUMBER_UNCLASSIFIED",
         _digit_pattern(r"\d(?:[ -]?\d){7,}"),
         "fallback",
-        validate=_not_business_number,
+        validate=_fallback_candidate,
     ),
 )
 
