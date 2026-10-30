@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "pydantic>=2.6",
+    "mcp>=2.3,<3",
 ]
 
 [project.optional-dependencies]
@@ -22,6 +23,7 @@ dev = [
 
 [project.scripts]
 pii-gate = "pii_gate.cli:main"
+pii-gate-mcp = "pii_gate.mcp_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

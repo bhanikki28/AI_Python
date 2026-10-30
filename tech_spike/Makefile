@@ -2,7 +2,7 @@ PY ?= python3
 VENV := .venv
 BIN := $(VENV)/bin
 
-.PHONY: setup lint test eval dataset verify run clean
+.PHONY: setup lint test eval dataset verify run mcp mcp-demo clean
 
 setup:
 	$(PY) -m venv $(VENV)
@@ -10,7 +10,7 @@ setup:
 	$(BIN)/pip install -e ".[dev]" -q
 
 lint:
-	$(BIN)/ruff check src tests evals
+	$(BIN)/ruff check src tests evals examples
 
 test:
 	$(BIN)/pytest -q
@@ -23,6 +23,12 @@ dataset:
 
 run:
 	$(BIN)/pii-gate serve
+
+mcp:
+	$(BIN)/pii-gate-mcp
+
+mcp-demo:
+	$(BIN)/python examples/mcp_demo.py
 
 verify: lint test eval
 

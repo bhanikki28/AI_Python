@@ -44,10 +44,14 @@ class Hit:
     score: float
 
 
+POSSESSIVE = re.compile(r"['’]s\b")
+
+
 def tokenize(text: str) -> list[str]:
     tokens = []
-    for t in TOKEN.findall(text.lower()):
-        if t in STOPWORDS:
+    # Drop possessives first: "customer's" must not leave a stray, high-IDF "s" token.
+    for t in TOKEN.findall(POSSESSIVE.sub("", text.lower())):
+        if t in STOPWORDS or len(t) < 2:
             continue
         if len(t) > 3 and t.endswith("s") and not t.endswith("ss"):
             t = t[:-1]  # crude plural folding: numbers -> number

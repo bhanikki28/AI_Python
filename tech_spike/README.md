@@ -61,6 +61,31 @@ CLI (exit code 0 = ALLOW/REDACT, 2 = BLOCK):
 
 Configuration is via environment variables. See [.env.example](.env.example). No secrets are needed.
 
+### MCP server (tool calling from AI agents)
+
+The gate is also an MCP server with three read-only tools: `scan_text`, `redact_text` and
+`explain_policy`. Its server instructions tell the agent to scan text before using it
+and to honour BLOCK.
+
+```bash
+make mcp-demo     # scripted MCP client: launches the server over stdio and calls each tool
+```
+
+Register it with an MCP client, using an absolute path to the venv executable:
+
+```bash
+# Claude Code CLI
+claude mcp add pii-gate -- "$(pwd)/.venv/bin/pii-gate-mcp"
+```
+
+```json
+// Claude Desktop / Cursor / Claude Code .mcp.json
+{ "mcpServers": { "pii-gate": { "command": "/ABSOLUTE/PATH/tech_spike/.venv/bin/pii-gate-mcp" } } }
+```
+
+Then ask the agent, for example: *"Use pii-gate to check this complaint before you summarise
+it: my card 4111 1111 1111 1111 was charged twice."*
+
 ## Verify
 
 ```bash

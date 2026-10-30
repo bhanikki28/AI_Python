@@ -26,6 +26,18 @@ def test_tokenize_drops_stopwords_and_folds_plurals():
     assert tokenize("Can I log the Card Numbers?") == ["log", "card", "number"]
 
 
+def test_tokenize_drops_possessives():
+    assert tokenize("a customer's card, the customer’s phone") == [
+        "customer", "card", "customer", "phone"
+    ]
+
+
+def test_possessive_does_not_skew_ranking():
+    # Regression: a stray "s" token from "customer's" used to rank DH-2.2 above DH-2.1.
+    result = explain("Can I send a customer's card number to an LLM?")
+    assert result.hits[0].clause.id == "DH-2.1"
+
+
 def test_corpus_loads():
     assert len(default_index().clauses) >= 10
 
