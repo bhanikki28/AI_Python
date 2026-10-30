@@ -1,0 +1,65 @@
+# CI for tech_spike/ (PII Gate). Runs only when that folder changes.
+name: pii-gate
+
+on:
+  push:
+    branches: [master]
+    paths: ["tech_spike/**", ".github/workflows/pii-gate.yml"]
+  pull_request:
+    paths: ["tech_spike/**", ".github/workflows/pii-gate.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pii-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: tech_spike
+
+jobs:
+  verify:
+    name: lint + tests + evals (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: tech_spike/pyproject.toml
+      - run: make setup
+      - name: Dataset is reproducible from its seed
+        run: make dataset && git diff --exit-code -- sample-data/
+      - run: make verify
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-py${{ matrix.python }}
+          path: tech_spike/reports/
+
+  audit:
+    name: dependency vulnerability audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: make setup
+      - run: make audit
+
+  container:
+    name: container build + smoke test
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - run: make docker-smoke

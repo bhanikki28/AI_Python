@@ -1,0 +1,23 @@
+# docker compose up --build                 -> gate only (assistant degraded)
+# docker compose --profile llm up --build   -> gate + local Ollama (then: docker compose
+#                                              exec ollama ollama pull llama3.2:3b)
+services:
+  pii-gate:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      PII_GATE_LOG_LEVEL: INFO
+      PII_GATE_OLLAMA_URL: http://ollama:11434
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+
+  ollama:
+    image: ollama/ollama:0.12.6
+    profiles: ["llm"]
+    volumes:
+      - ollama-models:/root/.ollama
+
+volumes:
+  ollama-models:
