@@ -71,6 +71,16 @@
   </section>
 
   <section>
+    <h2>Summarise with local LLM <span class="muted">(optional)</span></h2>
+    <p class="muted">Uses the text above. Gate, then a local Ollama model that sees only redacted
+      text, then a verifier that re-scans the model output. Without Ollama it degrades to the
+      gate result.</p>
+    <div class="row"><button class="primary" id="assist">Summarise</button>
+      <span class="muted" id="assistant-state"></span></div>
+    <div id="assist-result" class="hidden"></div>
+  </section>
+
+  <section>
     <h2>Ask the policy</h2>
     <input type="text" id="question" placeholder="e.g. Can I put email addresses in logs?">
     <div class="row"><button class="primary" id="ask">Ask</button>
@@ -154,13 +164,45 @@ async function ask() {
   );
 }
 
+const STATUS_TEXT = {
+  ok: "Summary verified and released.",
+  degraded: "Local LLM unavailable. Degraded to the gate result only.",
+  disabled: "Assistant disabled by configuration.",
+  input_blocked: "Input was blocked by the gate. The LLM was not called.",
+  invalid_output: "LLM output failed validation and was discarded (fail closed).",
+  output_withheld: "LLM output contained blocked data and was withheld by the verifier.",
+};
+
+async function assist() {
+  const out = $("assist-result");
+  out.classList.remove("hidden");
+  out.replaceChildren("Running gate, then LLM, then verifier...");
+  const { ok, status, data } = await post("/v1/assist", { text: $("text").value });
+  if (!ok) { out.replaceChildren(el("p", { class: "error" }, `Request failed (${status}). Treat as BLOCK.`)); return; }
+  const a = data.assistant;
+  const steps = el("table", {},
+    el("tr", {}, el("th", {}, "Step"), el("th", {}, "Outcome")),
+    el("tr", {}, el("td", {}, "1. Gate (input)"), el("td", {}, el("span", { class: `badge ${data.gate.decision}` }, data.gate.decision))),
+    el("tr", {}, el("td", {}, `2. LLM (${a.model ?? "none"})`), el("td", {}, data.status)),
+    el("tr", {}, el("td", {}, "3. Verifier (output)"), el("td", {}, a.output_decision
+      ? el("span", { class: `badge ${a.output_decision}` }, a.output_decision) : "not run")));
+  out.replaceChildren(
+    el("p", { class: data.status === "ok" ? "" : "error" }, STATUS_TEXT[data.status] ?? data.status),
+    steps,
+    a.summary ? el("div", {}, el("b", {}, `Summary · ${a.category} · urgency ${a.urgency}`), highlighted(a.summary)) : "",
+    a.reason ? el("p", { class: "muted" }, a.reason) : "",
+  );
+}
+
 $("scan").onclick = scan;
+$("assist").onclick = assist;
 $("ask").onclick = ask;
 $("question").addEventListener("keydown", (e) => e.key === "Enter" && ask());
 document.querySelectorAll("[data-sample]").forEach((b) => (b.onclick = () => { $("text").value = SAMPLES[b.dataset.sample]; scan(); }));
 
 fetch("/health").then((r) => r.json()).then((h) => {
-  $("health").textContent = `Service ${h.status} · v${h.version} · ${h.policy_clauses} policy clauses · max ${h.max_chars} chars`;
+  $("health").textContent = `Service ${h.status} · v${h.version} · ${h.policy_clauses} policy clauses · max ${h.max_chars} chars · assistant ${h.assistant}`;
+  $("assistant-state").textContent = `Assistant: ${h.assistant}`;
 }).catch(() => ($("health").textContent = "Service unreachable."));
 </script>
 </body>

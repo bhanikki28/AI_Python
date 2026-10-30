@@ -1,6 +1,7 @@
 """REST API and web UI.
 
-Endpoints: POST /v1/scan, POST /v1/explain, GET /health, GET / (UI).
+Endpoints: POST /v1/scan, POST /v1/explain, POST /v1/assist (optional LLM),
+GET /health, GET / (UI).
 Policy decisions (including BLOCK) return 200; the caller must honour `decision`.
 """
 
@@ -15,7 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from pii_gate import __version__, gate, knowledge
+from pii_gate import __version__, assistant, gate, knowledge
 from pii_gate.config import Settings, load_settings
 from pii_gate.logging_setup import configure_logging, get_logger
 from pii_gate.policy import check_rules
@@ -32,9 +33,14 @@ class ExplainRequest(BaseModel):
     question: str = Field(min_length=1, max_length=500)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, llm: assistant.OllamaClient | None = None
+) -> FastAPI:
     settings = settings or load_settings()
     configure_logging(settings.log_level)
+    llm = llm or assistant.OllamaClient(
+        settings.ollama_url, settings.ollama_model, settings.llm_timeout_s
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -125,13 +131,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }})
         return {"request_id": request.state.request_id, **result.to_dict()}
 
+    @app.post("/v1/assist")
+    def assist(body: ScanRequest, request: Request):
+        if not app.state.ready:
+            return not_ready()
+        result = assistant.assist(body.text, llm, max_chars=settings.max_chars)
+        log.info("assist_request", extra={"fields": {
+            "request_id": request.state.request_id,
+            "status": result.status.value,
+            "input_decision": result.gate_result.decision.name,
+            "output_decision": result.output_decision,
+        }})
+        return {"request_id": request.state.request_id, **result.to_dict(app.state.index)}
+
     @app.get("/health")
     def health():
+        # The assistant is optional: its state is reported but never makes the gate unready.
+        if not llm.enabled:
+            assistant_state = "disabled"
+        else:
+            assistant_state = "available" if llm.available() else "unavailable"
         body = {
             "status": "ok" if app.state.ready else "not_ready",
             "version": __version__,
             "policy_clauses": len(app.state.index.clauses) if app.state.ready else 0,
             "max_chars": settings.max_chars,
+            "assistant": assistant_state,
         }
         if not app.state.ready:
             body["reason"] = app.state.not_ready_reason

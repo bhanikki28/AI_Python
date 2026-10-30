@@ -86,6 +86,24 @@ claude mcp add pii-gate -- "$(pwd)/.venv/bin/pii-gate-mcp"
 Then ask the agent, for example: *"Use pii-gate to check this complaint before you summarise
 it: my card 4111 1111 1111 1111 was charged twice."*
 
+### Optional: local LLM complaint assistant (Ollama)
+
+**Not required.** Without Ollama, `/v1/assist` and `pii-gate assist` return
+`"status": "degraded"` along with the normal gate result.
+
+The pipeline has three steps:
+1. The gate scans the input. On BLOCK, the LLM is never called.
+2. A local model receives **only the redacted text** and returns a summary, category and urgency as JSON.
+3. A verifier checks that JSON and re-scans the summary. Any PII the model produced is redacted or withheld.
+
+To try it with a model:
+```bash
+# install from https://ollama.com, then:
+ollama pull llama3.2:3b
+make run          # the "Summarise" panel in the UI now shows "assistant available"
+.venv/bin/pii-gate assist "My card 4111 1111 1111 1111 was charged twice, please refund"
+```
+
 ## Verify
 
 ```bash
