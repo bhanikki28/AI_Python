@@ -149,7 +149,7 @@ async function scan() {
       ? el("table", {}, el("tr", {}, el("th", {}, "Type"), el("th", {}, "Method"), el("th", {}, "Span")), rows)
       : el("p", { class: "muted" }, "No sensitive data found."),
     el("b", {}, data.reasons.length ? "Policy basis" : ""),
-    data.reasons.map((r) => clauseBlock(r.policy, `  (${r.decision}${r.entity_type ? ": " + r.entity_type : ""}${r.code.startsWith("ENTITY") ? "" : ", " + r.code})`)),
+    ...data.reasons.map((r) => clauseBlock(r.policy, `  (${r.decision}${r.entity_type ? ": " + r.entity_type : ""}${r.code.startsWith("ENTITY") ? "" : ", " + r.code})`)),
   );
 }
 
@@ -160,7 +160,7 @@ async function ask() {
   if (!ok) { out.replaceChildren(el("p", { class: "error" }, `Request failed (${status}).`)); return; }
   out.replaceChildren(
     el("p", { class: data.answered ? "" : "error" }, data.message),
-    data.clauses.map((c) => clauseBlock(c, `  (score ${c.score})`)),
+    ...data.clauses.map((c) => clauseBlock(c, `  (score ${c.score})`)),
   );
 }
 

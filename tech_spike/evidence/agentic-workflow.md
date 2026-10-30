@@ -41,6 +41,7 @@ I gave the agent the brief and asked it to propose use cases and a phased plan, 
 2. **Ownership of commits.** The agent committed Phase 0 itself. I asked to do it myself, and it undid its local, unpushed commit with `git reset --mixed`. From then on it left changes unstaged with a suggested message. That's why the history shows my commits phase by phase.
 3. **Gate between phases.** Each phase was reviewed (file list, `make verify` output, the agent's stated caveats) before I approved the next.
 4. **CI confirmation.** I pushed Phase 7 and shared the Actions screenshot. The agent then checked the per-job logs with `gh` rather than relying on the green tick.
+5. **Manual UI review.** Running the demo in a browser, I found that "Ask the policy" showed `[object HTMLDivElement]` instead of the cited clauses, even though all 129 automated tests passed. The agent traced it to its own JavaScript, fixed it, and added a regression guard.
 
 ## How generated output was reviewed and verified
 
@@ -63,6 +64,7 @@ I gave the agent the brief and asked it to propose use cases and a phased plan, 
 | "customer's" produced a stray `s` token that mis-ranked retrieval | `make mcp-demo` output | possessive stripping + regression test |
 | Policy path wrong when installed as a wheel in Docker | agent anticipated it; smoke test confirms | `PII_GATE_POLICY_DIR` in image |
 | Stray empty file `degraded` created by an agent shell command | `git status` review | inspected, then deleted |
+| UI rendered clause lists as `[object HTMLDivElement]` (`replaceChildren(array)`) | **candidate's manual UI check** | spread the arrays + static regression test (proven to fail on the old UI) |
 
 ## Where the agent was wrong (for transparency)
 

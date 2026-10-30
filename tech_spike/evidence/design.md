@@ -2,6 +2,8 @@
 
 ## Architecture
 
+There's a presentation version with full styling at [architecture.excalidraw](architecture.excalidraw). Open it at https://excalidraw.com (*Open*, then choose the file) or with the VS Code *Excalidraw* extension. The diagram below is the same flow, and it renders directly on GitHub.
+
 ```mermaid
 flowchart LR
   subgraph Clients

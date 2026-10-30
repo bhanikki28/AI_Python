@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -91,6 +92,13 @@ def test_ui_served(client):
     res = client.get("/")
     assert res.status_code == 200
     assert "PII Gate" in res.text
+
+
+def test_ui_does_not_pass_unspread_arrays_to_dom_calls(client):
+    # Regression (found in manual UI review): replaceChildren(array) renders
+    # "[object HTMLDivElement]". Static guard because the UI is not browser-tested.
+    html = client.get("/").text
+    assert not re.search(r"^\s+(?!\.\.\.)[\w.]+\.map\(", html, re.MULTILINE)
 
 
 def test_logs_contain_metadata_but_no_raw_pii(client, caplog):

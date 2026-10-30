@@ -28,7 +28,7 @@ All data is **synthetic**. No API keys, credentials or network services are need
 ```bash
 cd tech_spike
 make setup        # create .venv and install dependencies
-make verify       # lint + 129 tests + evals: the same checks CI runs
+make verify       # lint + 130 tests + evals: the same checks CI runs
 make run          # API + web UI at http://127.0.0.1:8000  (OpenAPI docs: /docs)
 ```
 
@@ -114,7 +114,7 @@ Environment variables only; validated at startup; no secrets required. See [.env
 src/pii_gate/     validation, checksums, detectors, redactor, policy, knowledge (RAG), gate,
                   api, cli, mcp_server, assistant, config, logging_setup, static/index.html
 policies/         synthetic data-handling standard (15 clauses, cited by ID)
-tests/            129 unit/integration tests
+tests/            130 unit/integration tests
 evals/            dataset generator, metrics, eval runner (thresholds gate CI)
 sample-data/      eval_cases.jsonl (69 labelled cases), policy_questions.jsonl (24)
 examples/         mcp_demo.py
@@ -137,6 +137,7 @@ evidence/         intent, design, agentic-workflow, verify, operate, decisions
 |---|---|
 | [intent.md](evidence/intent.md) | problem, users, assumptions, scope, success criteria |
 | [design.md](evidence/design.md) | architecture, data flow, trade-offs, security, cloud shape |
+| [architecture.excalidraw](evidence/architecture.excalidraw) | presentation architecture diagram (open in excalidraw.com or the VS Code Excalidraw extension) |
 | [agentic-workflow.md](evidence/agentic-workflow.md) | how Claude Code was steered and reviewed; what it got wrong |
 | [verify.md](evidence/verify.md) | test and eval results, CI evidence, check matrix, gaps |
 | [operate.md](evidence/operate.md) | run, logs, config, failure modes, rollback, local to cloud |
