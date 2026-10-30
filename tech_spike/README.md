@@ -1,115 +1,149 @@
-# PII Gate — Sensitive Data Redaction & Policy Gate
+# PII Gate: sensitive-data redaction and policy gate
 
-A locally runnable control service that inspects free text (e.g. a customer
-message or an LLM prompt) **before** it is sent to an AI model, logged, or
-stored. It detects synthetic Australian-banking-style PII, redacts it, and
-returns a policy decision:
+A locally runnable control service that inspects free text, such as a customer complaint or an LLM prompt, **before** it reaches an AI model, a log or storage. It detects Australian banking-style PII, redacts it, and returns a decision that cites the data-handling policy clause behind it.
 
 | Decision | Meaning |
 |---|---|
-| `ALLOW` | No sensitive data found — text passes unchanged |
-| `REDACT` | Sensitive data found and masked — redacted text may pass |
-| `BLOCK` | High-risk content or input that cannot be safely processed — fail closed |
+| `ALLOW` | Nothing sensitive found. Text passes unchanged. |
+| `REDACT` | Sensitive data masked (`[CARD_NUMBER]`, `[EMAIL]`, …). The redacted text may pass. |
+| `BLOCK` | High-risk data (TFN, Medicare, bulk extract) or input that can't be safely inspected. **Nothing is released.** |
 
-Every decision cites the data-handling policy clause that drove it, retrieved
-from a local synthetic policy corpus (RAG). The gate is exposed through a REST
-API, a CLI, a small web UI and an **MCP server**, so AI clients such as Claude
-Code can call it as a tool. An **optional** local LLM assistant (Ollama) only ever
-sees redacted text. When Ollama isn't running, the gate degrades to
-deterministic-only mode.
+**Detected:** card numbers (Luhn), TFN, ABN, Medicare (checksums), BSB and account numbers (context keywords), emails, AU phone numbers, plus a fail-safe for unclassified long numbers.
 
-> Status: **Phase 0 — scaffold.** Sections below are filled in as phases land.
+**Agentic features:**
+- **RAG**: policy Q&A and citations, abstaining when nothing is relevant.
+- **MCP server**: the gate as a tool for AI agents.
+- **Optional local-LLM assistant** (Ollama): sees only redacted text, and its output is re-verified by the gate. It degrades gracefully when Ollama isn't installed.
+
+All data is **synthetic**. No API keys, credentials or network services are needed for the core path.
 
 ## Prerequisites
 
-- Python 3.11+ (developed on 3.14)
+- Python 3.11+ (developed on 3.14; CI runs 3.11 and 3.13)
 - `make`
-- Docker (optional)
-- Ollama (optional — **not** required for the core path)
+- Optional: Docker, for the container path; Ollama, for the LLM assistant only
 
-## Setup
+## Setup, run and verify
 
 ```bash
 cd tech_spike
-make setup        # creates .venv and installs dev dependencies
+make setup        # create .venv and install dependencies
+make verify       # lint + 129 tests + evals: the same checks CI runs
+make run          # API + web UI at http://127.0.0.1:8000  (OpenAPI docs: /docs)
 ```
 
-## Run
+| Command | What it does |
+|---|---|
+| `make eval` | eval suite only; report written to `reports/eval-report.md` |
+| `make mcp-demo` | scripted MCP client: starts the MCP server over stdio and calls its tools |
+| `make audit` | dependency vulnerability scan (pip-audit) |
+| `make docker-smoke` | build the container and smoke-test it over HTTP |
+| `docker compose up --build` | run in a container (add `--profile llm` for Ollama) |
 
-```bash
-make run          # API + web UI on http://127.0.0.1:8000  (API docs: /docs)
-```
+## Example
 
-Web UI: open http://127.0.0.1:8000 and click a sample (Card + phone, TFN, Bulk, Clean, Evasion).
-
-API:
 ```bash
 curl -s -X POST localhost:8000/v1/scan -H 'content-type: application/json' \
   -d '{"text":"Hi, card 4111 1111 1111 1111 charged twice, call 0412 345 678"}'
-# -> {"decision":"REDACT","released_text":"Hi, card [CARD_NUMBER] charged twice, call [PHONE_AU]", ...}
-
-curl -s -X POST localhost:8000/v1/explain -H 'content-type: application/json' \
-  -d '{"question":"Can I put email addresses in logs?"}'
+```
+```json
+{
+  "request_id": "7ae4a9fc…",
+  "decision": "REDACT",
+  "released_text": "Hi, card [CARD_NUMBER] charged twice, call [PHONE_AU]",
+  "findings": [
+    {"type": "CARD_NUMBER", "start": 9, "end": 28, "method": "checksum"},
+    {"type": "PHONE_AU", "start": 49, "end": 61, "method": "pattern"}
+  ],
+  "reasons": [
+    {"code": "ENTITY_DETECTED", "decision": "REDACT", "entity_type": "CARD_NUMBER", "count": 1,
+     "policy": {"id": "DH-2.1", "title": "Payment card numbers", "text": "Payment card numbers (PAN, …) must never be sent to AI models…"}},
+    …
+  ]
+}
 ```
 
-CLI (exit code 0 = ALLOW/REDACT, 2 = BLOCK):
-```bash
-.venv/bin/pii-gate scan "My TFN is 123 456 782"
-.venv/bin/pii-gate scan --file message.txt
-.venv/bin/pii-gate explain "What do I do with a Medicare number?"
-```
+`"My TFN is 123 456 782"` returns `"decision": "BLOCK"`, `"released_text": null`, citing DH-3.1.
 
-Configuration is via environment variables. See [.env.example](.env.example). No secrets are needed.
+CLI: `.venv/bin/pii-gate scan "…"` exits 0 if the text is safe to use and 2 on BLOCK. `pii-gate explain "…"` and `pii-gate assist "…"` are also available.
 
-### MCP server (tool calling from AI agents)
+## Five-minute demo script
 
-The gate is also an MCP server with three read-only tools: `scan_text`, `redact_text` and
-`explain_policy`. Its server instructions tell the agent to scan text before using it
-and to honour BLOCK.
+1. **UI** (`make run`, open http://127.0.0.1:8000). Click the samples in turn:
+   - **Card + phone**: REDACT, with policy citations.
+   - **TFN**: BLOCK, text withheld.
+   - **Bulk export**: BLOCK under DH-6.1.
+   - **Clean**: ALLOW.
+   - **Evasion**: zero-width and full-width digits are still caught.
+2. **Ask the policy:** "Can I put email addresses in logs?" gets cited clauses. "chocolate cake recipe" is declined, with a referral to the Privacy Office.
+3. **Summarise (optional LLM):** without Ollama it shows `degraded`, the step table, and the gate result still returned.
+4. **MCP:** `make mcp-demo`, which is an agent-style tool-calling session with no LLM needed.
+5. **Evidence of safety:** `make verify` (watch `leak_rate 0.000`), then point to the logs in the `make run` terminal. They contain types and counts, never values.
 
-```bash
-make mcp-demo     # scripted MCP client: launches the server over stdio and calls each tool
-```
+## MCP server (tool calling from AI agents)
 
-Register it with an MCP client, using an absolute path to the venv executable:
+The server exposes three read-only tools: `scan_text`, `redact_text` and `explain_policy`. Its instructions tell the agent to scan text before using it and to honour BLOCK.
 
 ```bash
 # Claude Code CLI
 claude mcp add pii-gate -- "$(pwd)/.venv/bin/pii-gate-mcp"
 ```
-
 ```json
-// Claude Desktop / Cursor / Claude Code .mcp.json
+// Claude Desktop / Cursor / .mcp.json
 { "mcpServers": { "pii-gate": { "command": "/ABSOLUTE/PATH/tech_spike/.venv/bin/pii-gate-mcp" } } }
 ```
 
-Then ask the agent, for example: *"Use pii-gate to check this complaint before you summarise
-it: my card 4111 1111 1111 1111 was charged twice."*
+## Optional: local LLM assistant (Ollama)
 
-### Optional: local LLM complaint assistant (Ollama)
+**Not required.** Without Ollama, `/v1/assist` returns `"status": "degraded"` along with the normal gate result.
 
-**Not required.** Without Ollama, `/v1/assist` and `pii-gate assist` return
-`"status": "degraded"` along with the normal gate result.
+The pipeline:
+1. The **gate** scans the input. On BLOCK, the LLM is never called.
+2. The **local model** sees only redacted text and returns summary, category and urgency as JSON.
+3. The **verifier** validates the JSON and re-scans the output.
 
-The pipeline has three steps:
-1. The gate scans the input. On BLOCK, the LLM is never called.
-2. A local model receives **only the redacted text** and returns a summary, category and urgency as JSON.
-3. A verifier checks that JSON and re-scans the summary. Any PII the model produced is redacted or withheld.
+To try it: install Ollama, run `ollama pull llama3.2:3b`, then `make run`.
 
-To try it with a model:
-```bash
-# install from https://ollama.com, then:
-ollama pull llama3.2:3b
-make run          # the "Summarise" panel in the UI now shows "assistant available"
-.venv/bin/pii-gate assist "My card 4111 1111 1111 1111 was charged twice, please refund"
+## Configuration
+
+Environment variables only; validated at startup; no secrets required. See [.env.example](.env.example) and [evidence/operate.md](evidence/operate.md).
+
+## Project layout
+
+```text
+src/pii_gate/     validation, checksums, detectors, redactor, policy, knowledge (RAG), gate,
+                  api, cli, mcp_server, assistant, config, logging_setup, static/index.html
+policies/         synthetic data-handling standard (15 clauses, cited by ID)
+tests/            129 unit/integration tests
+evals/            dataset generator, metrics, eval runner (thresholds gate CI)
+sample-data/      eval_cases.jsonl (69 labelled cases), policy_questions.jsonl (24)
+examples/         mcp_demo.py
+scripts/          smoke_test.sh (container smoke test)
+evidence/         intent, design, agentic-workflow, verify, operate, decisions
+../.github/workflows/pii-gate.yml   CI (repo root, path-filtered to tech_spike/**)
 ```
 
-## Verify
+## Known limitations
 
-```bash
-make verify       # lint + tests + evals (the same checks CI runs)
-```
+- **Names, street addresses and dates of birth are not detected.** This needs NER; the evals report it as a known gap (4 of 4 probes missed).
+- **Evals use synthetic data** built from the targeted formats. The 1.000 scores show the design works and catch regressions; they are not a real-world accuracy estimate.
+- **The LLM assistant has not been run against a real model**; its tests use a fake Ollama. If a small model breaks the JSON format, the result fails closed (`invalid_output`).
+- **Conservative by design.** Overlaps take the stricter label and unknown long numbers are redacted, so some benign numbers will be over-redacted.
+- English only; text only; no authN, authZ or rate limiting (expected at the API gateway in production).
 
 ## Evidence pack
 
-See [evidence/](evidence/).
+| File | Contents |
+|---|---|
+| [intent.md](evidence/intent.md) | problem, users, assumptions, scope, success criteria |
+| [design.md](evidence/design.md) | architecture, data flow, trade-offs, security, cloud shape |
+| [agentic-workflow.md](evidence/agentic-workflow.md) | how Claude Code was steered and reviewed; what it got wrong |
+| [verify.md](evidence/verify.md) | test and eval results, CI evidence, check matrix, gaps |
+| [operate.md](evidence/operate.md) | run, logs, config, failure modes, rollback, local to cloud |
+| [decisions.md](evidence/decisions.md) | 5 decision records and what was not built |
+
+## Submission notes
+
+- **AI coding agent:** Claude Code (VS Code extension), Claude Opus 5.5 (session started on Sonnet 5.5).
+- **Time spent:** <!-- TODO(candidate): fill in --> about __ h __ min build, plus __ min packaging.
+- **No setup beyond this README** is needed for the core path.

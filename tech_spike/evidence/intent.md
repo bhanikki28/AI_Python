@@ -53,5 +53,7 @@ the system **degrades** to deterministic-only mode. The core path never needs an
 | Decision accuracy (ALLOW/REDACT/BLOCK) on the labelled set | ≥ 0.95 |
 | RAG retrieval hit@3 (correct policy clause cited) | ≥ 0.90 |
 | Ollama absent → assistant reports degraded and the gate still works | Tested |
+
+**Outcome:** all criteria met at submission. See [verify.md](verify.md) for results and their limits.
 | Fail-closed: oversized, empty or malformed input → `BLOCK`/4xx, never pass-through | Tested |
 | `make verify` runs lint, tests and evals with a non-zero exit on failure | Works |
