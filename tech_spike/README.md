@@ -36,7 +36,30 @@ make setup        # creates .venv and installs dev dependencies
 
 ## Run
 
-_TBD (Phase 3)_
+```bash
+make run          # API + web UI on http://127.0.0.1:8000  (API docs: /docs)
+```
+
+Web UI: open http://127.0.0.1:8000 and click a sample (Card + phone, TFN, Bulk, Clean, Evasion).
+
+API:
+```bash
+curl -s -X POST localhost:8000/v1/scan -H 'content-type: application/json' \
+  -d '{"text":"Hi, card 4111 1111 1111 1111 charged twice, call 0412 345 678"}'
+# -> {"decision":"REDACT","released_text":"Hi, card [CARD_NUMBER] charged twice, call [PHONE_AU]", ...}
+
+curl -s -X POST localhost:8000/v1/explain -H 'content-type: application/json' \
+  -d '{"question":"Can I put email addresses in logs?"}'
+```
+
+CLI (exit code 0 = ALLOW/REDACT, 2 = BLOCK):
+```bash
+.venv/bin/pii-gate scan "My TFN is 123 456 782"
+.venv/bin/pii-gate scan --file message.txt
+.venv/bin/pii-gate explain "What do I do with a Medicare number?"
+```
+
+Configuration is via environment variables. See [.env.example](.env.example). No secrets are needed.
 
 ## Verify
 

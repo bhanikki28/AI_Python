@@ -7,9 +7,12 @@ from dataclasses import dataclass, field
 
 from pii_gate import detectors
 from pii_gate.knowledge import PolicyIndex, default_index
+from pii_gate.logging_setup import get_logger
 from pii_gate.policy import FAIL_CLOSED_CLAUSE, Decision, Reason, decide
 from pii_gate.redactor import redact
 from pii_gate.validation import DEFAULT_MAX_CHARS, InputRejected, validate_input
+
+log = get_logger("gate")
 
 
 @dataclass
@@ -58,8 +61,10 @@ def scan(text: object, max_chars: int = DEFAULT_MAX_CHARS) -> GateResult:
         findings = detectors.detect(clean)
         decision, reasons = decide(findings)
         released = redact(clean, findings) if decision != Decision.BLOCK else None
-    except Exception:
+    except Exception as exc:
         # Never fall open: an engine fault must not release uninspected text.
+        # Log the exception type only; messages could contain input fragments.
+        log.error("engine_error", extra={"fields": {"error_type": type(exc).__name__}})
         return GateResult(
             Decision.BLOCK,
             None,

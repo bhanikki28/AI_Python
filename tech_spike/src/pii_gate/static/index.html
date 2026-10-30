@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PII Gate</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --border: #dddad3;
+    --accent: #2f5d8a; --allow: #2e7d4f; --redact: #a86a00; --block: #b3261e; --mark: #fff1c2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --panel: #1f1f1d; --text: #ecebe6; --muted: #a09f98; --border: #34332f;
+      --accent: #7fb0e0; --allow: #6cc995; --redact: #e5ad4c; --block: #f2867e; --mark: #4a3f1a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  p.lede { margin: 0 0 20px; color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+            padding: 16px; margin-bottom: 16px; }
+  textarea, input[type=text] { width: 100%; background: var(--bg); color: var(--text);
+            border: 1px solid var(--border); border-radius: 8px; padding: 10px; font: inherit; }
+  textarea { min-height: 120px; resize: vertical; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+  button { font: inherit; border-radius: 8px; padding: 6px 14px; cursor: pointer;
+           border: 1px solid var(--border); background: var(--panel); color: var(--text); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .badge { display: inline-block; font-weight: 700; padding: 2px 10px; border-radius: 999px;
+           color: #fff; letter-spacing: .03em; }
+  .ALLOW { background: var(--allow); } .REDACT { background: var(--redact); }
+  .BLOCK { background: var(--block); }
+  pre { white-space: pre-wrap; word-break: break-word; background: var(--bg); margin: 8px 0;
+        border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 14px; }
+  .ph { background: var(--mark); border-radius: 4px; padding: 0 2px; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border);
+           vertical-align: top; }
+  .clause { border-left: 3px solid var(--accent); padding: 4px 10px; margin: 8px 0; }
+  .clause b { display: block; }
+  .hidden { display: none; }
+  .error { color: var(--block); }
+</style>
+</head>
+<body>
+<main>
+  <h1>PII Gate</h1>
+  <p class="lede">Checks text for sensitive data before it reaches an AI model, a log or
+    storage. Every decision cites the data-handling policy clause behind it.
+    All sample data is synthetic.</p>
+
+  <section>
+    <h2>Scan text</h2>
+    <textarea id="text" placeholder="Paste a customer message..."></textarea>
+    <div class="row">
+      <button class="primary" id="scan">Scan</button>
+      <span class="muted">Samples:</span>
+      <button data-sample="redact">Card + phone</button>
+      <button data-sample="block">TFN</button>
+      <button data-sample="bulk">Bulk export</button>
+      <button data-sample="allow">Clean</button>
+      <button data-sample="evasion">Evasion</button>
+    </div>
+    <div id="scan-result" class="hidden"></div>
+  </section>
+
+  <section>
+    <h2>Ask the policy</h2>
+    <input type="text" id="question" placeholder="e.g. Can I put email addresses in logs?">
+    <div class="row"><button class="primary" id="ask">Ask</button>
+      <span class="muted">Answers come only from the policy corpus. Off-topic questions are declined.</span>
+    </div>
+    <div id="explain-result" class="hidden"></div>
+  </section>
+
+  <p class="muted" id="health">Checking service...</p>
+</main>
+
+<script>
+const SAMPLES = {
+  redact: "Hi, my card 4111 1111 1111 1111 was charged twice. Call me on 0412 345 678 or email jane.citizen@example.com.",
+  block: "Update my details please. My TFN is 123 456 782 and my mobile is 0412 345 678.",
+  bulk: "Customer export: a1@example.com; a2@example.com; a3@example.com; 0412 000 001; 0412 000 002; b1@example.org; b2@example.org; 0412 000 003; b3@example.org",
+  allow: "The branch was closed on Tuesday and I waited 45 minutes. Reference INV-2026-000123.",
+  evasion: "card 4111​1111​1111​1111 and my tfn is １２３ ４５６ ７８２",
+};
+
+const $ = (id) => document.getElementById(id);
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  Object.entries(attrs).forEach(([k, v]) => (k === "class" ? (node.className = v) : node.setAttribute(k, v)));
+  children.flat().forEach((c) => node.append(c instanceof Node ? c : document.createTextNode(String(c ?? ""))));
+  return node;
+}
+
+function highlighted(text) {
+  // Wrap [PLACEHOLDER] tokens; everything is inserted as text nodes (no innerHTML).
+  const pre = el("pre");
+  text.split(/(\[[A-Z_]+\])/).forEach((part) =>
+    pre.append(/^\[[A-Z_]+\]$/.test(part) ? el("span", { class: "ph" }, part) : part));
+  return pre;
+}
+
+async function post(path, body) {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
+function clauseBlock(policy, extra) {
+  return el("div", { class: "clause" }, el("b", {}, `${policy.id} ${policy.title ?? ""}${extra ?? ""}`),
+            el("span", { class: "muted" }, policy.text ?? ""));
+}
+
+async function scan() {
+  const out = $("scan-result");
+  out.replaceChildren("Scanning...");
+  out.classList.remove("hidden");
+  const { ok, status, data } = await post("/v1/scan", { text: $("text").value });
+  if (!ok) {
+    out.replaceChildren(el("p", { class: "error" }, `Request failed (${status}): ${data.error ?? "error"}. Fail closed: treat as BLOCK.`));
+    return;
+  }
+  const rows = data.findings.map((f) => el("tr", {}, el("td", {}, f.type), el("td", {}, f.method), el("td", {}, `${f.start}-${f.end}`)));
+  out.replaceChildren(
+    el("p", {}, "Decision: ", el("span", { class: `badge ${data.decision}` }, data.decision),
+       el("span", { class: "muted" }, `  request ${data.request_id}`)),
+    data.released_text !== null
+      ? el("div", {}, el("b", {}, "Released text"), highlighted(data.released_text))
+      : el("p", { class: "error" }, "Text withheld: blocked content is never released, not even redacted."),
+    data.findings.length
+      ? el("table", {}, el("tr", {}, el("th", {}, "Type"), el("th", {}, "Method"), el("th", {}, "Span")), rows)
+      : el("p", { class: "muted" }, "No sensitive data found."),
+    el("b", {}, data.reasons.length ? "Policy basis" : ""),
+    data.reasons.map((r) => clauseBlock(r.policy, `  (${r.decision}${r.entity_type ? ": " + r.entity_type : ""}${r.code.startsWith("ENTITY") ? "" : ", " + r.code})`)),
+  );
+}
+
+async function ask() {
+  const out = $("explain-result");
+  out.classList.remove("hidden");
+  const { ok, status, data } = await post("/v1/explain", { question: $("question").value });
+  if (!ok) { out.replaceChildren(el("p", { class: "error" }, `Request failed (${status}).`)); return; }
+  out.replaceChildren(
+    el("p", { class: data.answered ? "" : "error" }, data.message),
+    data.clauses.map((c) => clauseBlock(c, `  (score ${c.score})`)),
+  );
+}
+
+$("scan").onclick = scan;
+$("ask").onclick = ask;
+$("question").addEventListener("keydown", (e) => e.key === "Enter" && ask());
+document.querySelectorAll("[data-sample]").forEach((b) => (b.onclick = () => { $("text").value = SAMPLES[b.dataset.sample]; scan(); }));
+
+fetch("/health").then((r) => r.json()).then((h) => {
+  $("health").textContent = `Service ${h.status} · v${h.version} · ${h.policy_clauses} policy clauses · max ${h.max_chars} chars`;
+}).catch(() => ($("health").textContent = "Service unreachable."));
+</script>
+</body>
+</html>

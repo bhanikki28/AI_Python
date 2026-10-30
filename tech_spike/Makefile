@@ -21,6 +21,9 @@ eval:
 dataset:
 	$(BIN)/python -m evals.generate_dataset
 
+run:
+	$(BIN)/pii-gate serve
+
 verify: lint test eval
 
 clean:
