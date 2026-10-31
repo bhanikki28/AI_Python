@@ -183,7 +183,8 @@ async function assist() {
   const steps = el("table", {},
     el("tr", {}, el("th", {}, "Step"), el("th", {}, "Outcome")),
     el("tr", {}, el("td", {}, "1. Gate (input)"), el("td", {}, el("span", { class: `badge ${data.gate.decision}` }, data.gate.decision))),
-    el("tr", {}, el("td", {}, `2. LLM (${a.model ?? "none"})`), el("td", {}, data.status)),
+    el("tr", {}, el("td", {}, `2. LLM (${a.model ?? "none"})`),
+       el("td", {}, `${data.status}${a.attempts ? ` · ${a.attempts} attempt${a.attempts > 1 ? "s" : ""}` : ""}`)),
     el("tr", {}, el("td", {}, "3. Verifier (output)"), el("td", {}, a.output_decision
       ? el("span", { class: `badge ${a.output_decision}` }, a.output_decision) : "not run")));
   out.replaceChildren(

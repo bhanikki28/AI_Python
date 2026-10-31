@@ -50,6 +50,18 @@
 
 **Trade-off.** Some over-blocking and mislabels: a 1-in-11 chance for 9-digit account numbers. Leak rate is the hard gate (0); precision has a ≥ 0.90 target.
 
+## DR-6: Retry transient system failures only; business outcomes are final
+
+**Decision.**
+- **Retried:** the one remote call, the LLM, on transient failures only: connection errors, timeouts, and HTTP 429/502/503/504. At most `PII_GATE_LLM_MAX_ATTEMPTS` (default 3) attempts, jittered exponential backoff (0.2 s, 0.4 s, …), `Retry-After` honoured but capped at 5 s, and **one overall deadline** (`PII_GATE_LLM_TIMEOUT`) that covers all attempts. When retries run out, the result degrades to the gate result.
+- **Not retried, system:** permanent faults such as other 4xx (e.g. 404 when the model isn't pulled), 500, or a malformed reply. Retrying these only adds latency.
+- **Not retried, business:**
+  - gate `BLOCK` and input rejection: the gate is deterministic, so the same input gives the same answer;
+  - `invalid_output` and `output_withheld`: at temperature 0 the model repeats itself, and re-asking until the output passes would launder an unsafe answer.
+- **The API tells callers which is which.** Error bodies carry `retryable`. 503 not-ready is `true`, with `Retry-After: 30`. 413, 422 and 500 are `false`. A 200 `BLOCK` is a decision, not an error.
+
+**Trade-off.** With Ollama down, `/v1/assist` waits for about 0.5 s of backoff before degrading. There's no circuit breaker yet, so each request pays that cost. In production, add a breaker (open after N failures, half-open probe) so a dead dependency fails fast.
+
 ## What we intentionally did not build
 
 - Name, address and DOB detection (needs NER); non-English text; attachments, PDFs and images.

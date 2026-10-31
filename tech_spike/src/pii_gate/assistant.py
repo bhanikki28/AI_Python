@@ -8,11 +8,22 @@ Pipeline of three single-purpose agents:
 
 The core gate never depends on this module. Any LLM failure (not installed, not
 running, timeout, bad output) degrades to the gate result with no summary.
+
+Retry policy: only *transient system* failures of the LLM call are retried (connection
+errors, timeouts, HTTP 429/502/503/504), with jittered exponential backoff, a bounded
+number of attempts and one overall deadline. *Permanent* system failures (other 4xx/5xx,
+malformed reply) and every *business* outcome (gate BLOCK, invalid or withheld output)
+are final and never retried: the gate is deterministic and the model runs at
+temperature 0, so a retry would give the same answer.
 """
 
 import json
+import random
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import NamedTuple
 
 import httpx
 
@@ -27,6 +38,10 @@ log = get_logger("assistant")
 CATEGORIES = ("card_dispute", "fees_charges", "fraud_scam", "account_access", "service", "other")
 URGENCIES = ("low", "medium", "high")
 MAX_SUMMARY_CHARS = 600
+
+RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
+BACKOFF_BASE_S = 0.2
+MAX_RETRY_AFTER_S = 5.0
 
 SYSTEM_PROMPT = f"""\
 You summarise customer complaints for a bank's complaints team.
@@ -49,7 +64,23 @@ class Status(StrEnum):
 
 
 class LLMUnavailable(Exception):
-    pass
+    def __init__(self, error_type: str, retryable: bool, attempts: int):
+        super().__init__(error_type)
+        self.error_type, self.retryable, self.attempts = error_type, retryable, attempts
+
+
+class Reply(NamedTuple):
+    content: str
+    attempts: int
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    # Honour a numeric Retry-After from the server, capped so one reply can't stall us.
+    raw = response.headers.get("retry-after", "")
+    try:
+        return min(max(float(raw), 0.0), MAX_RETRY_AFTER_S)
+    except ValueError:
+        return None
 
 
 class OllamaClient:
@@ -59,9 +90,14 @@ class OllamaClient:
         model: str,
         timeout_s: float = 30,
         transport: httpx.BaseTransport | None = None,
+        max_attempts: int = 3,
+        sleep: Callable[[float], None] = time.sleep,
     ):
         self.base_url = base_url
         self.model = model
+        self.timeout_s = timeout_s  # overall budget for one chat() call, retries included
+        self.max_attempts = max_attempts
+        self._sleep = sleep
         self._http = httpx.Client(base_url=base_url, timeout=timeout_s, transport=transport)
 
     @property
@@ -76,7 +112,11 @@ class OllamaClient:
         except httpx.HTTPError:
             return False
 
-    def chat(self, system: str, user: str) -> str:
+    def _backoff(self, attempt: int) -> float:
+        # Exponential (0.2s, 0.4s, 0.8s...) with jitter so replicas don't retry in lockstep.
+        return BACKOFF_BASE_S * 2 ** (attempt - 1) * (0.5 + random.random() / 2)
+
+    def chat(self, system: str, user: str) -> Reply:
         payload = {
             "model": self.model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -84,12 +124,33 @@ class OllamaClient:
             "format": "json",
             "options": {"temperature": 0},
         }
-        try:
-            res = self._http.post("/api/chat", json=payload)
-            res.raise_for_status()
-            return res.json()["message"]["content"]
-        except (httpx.HTTPError, KeyError, ValueError) as exc:
-            raise LLMUnavailable(type(exc).__name__) from None
+        deadline = time.monotonic() + self.timeout_s
+        attempt = 0
+        while True:
+            attempt += 1
+            retry_after = None
+            try:
+                remaining = max(deadline - time.monotonic(), 0.1)
+                res = self._http.post("/api/chat", json=payload, timeout=remaining)
+                res.raise_for_status()
+                return Reply(res.json()["message"]["content"], attempt)
+            except httpx.TransportError as exc:  # refused, reset, connect/read timeout
+                error, retryable = type(exc).__name__, True
+            except httpx.HTTPStatusError as exc:
+                code = exc.response.status_code
+                error, retryable = f"HTTP_{code}", code in RETRYABLE_STATUS
+                retry_after = _retry_after(exc.response)
+            except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:  # malformed reply
+                error, retryable = type(exc).__name__, False
+
+            delay = retry_after if retry_after is not None else self._backoff(attempt)
+            out_of_budget = time.monotonic() + delay >= deadline
+            if not retryable or attempt >= self.max_attempts or out_of_budget:
+                raise LLMUnavailable(error, retryable, attempt) from None
+            log.info("llm_retry", extra={"fields": {
+                "attempt": attempt, "error_type": error, "delay_s": round(delay, 3),
+            }})
+            self._sleep(delay)
 
 
 @dataclass
@@ -102,6 +163,7 @@ class AssistantResult:
     output_decision: str | None = None
     reason: str | None = None
     model: str | None = None
+    attempts: int | None = None  # LLM calls made, retries included; None if never called
 
     def to_dict(self, index: PolicyIndex | None = None) -> dict:
         return {
@@ -109,6 +171,7 @@ class AssistantResult:
             "gate": self.gate_result.to_dict(index),
             "assistant": {
                 "model": self.model,
+                "attempts": self.attempts,
                 "summary": self.summary,
                 "category": self.category,
                 "urgency": self.urgency,
@@ -149,15 +212,25 @@ def assist(
         return result
 
     # Agent 2: the LLM only ever sees the released (redacted) text.
+    # Transient failures are retried inside chat(); everything after this is final.
     try:
-        raw = client.chat(SYSTEM_PROMPT, gate_result.released_text or "")
+        raw, result.attempts = client.chat(SYSTEM_PROMPT, gate_result.released_text or "")
     except LLMUnavailable as exc:
-        log.warning("llm_unavailable", extra={"fields": {"error_type": str(exc)}})
-        result.status = Status.DEGRADED
-        result.reason = "Local LLM unavailable; returning gate result only."
+        log.warning("llm_unavailable", extra={"fields": {
+            "error_type": exc.error_type, "retryable": exc.retryable, "attempts": exc.attempts,
+        }})
+        result.status, result.attempts = Status.DEGRADED, exc.attempts
+        if exc.retryable:
+            result.reason = (f"Local LLM unavailable after {exc.attempts} attempt(s) "
+                             f"({exc.error_type}); returning gate result only.")
+        else:
+            result.reason = (f"Local LLM failed with a permanent error ({exc.error_type}); "
+                             "not retried. Returning gate result only.")
         return result
 
     # Agent 3: verify shape, then re-scan the output before release.
+    # Not retried on failure: at temperature 0 the model would repeat itself, and
+    # re-asking until the output passes would launder an unsafe answer.
     parsed = _parse(raw)
     if parsed is None:
         log.warning("llm_invalid_output", extra={"fields": {"chars": len(raw)}})

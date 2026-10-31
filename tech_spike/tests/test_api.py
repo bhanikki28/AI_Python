@@ -59,6 +59,7 @@ def test_invalid_request_does_not_echo_input(client, payload):
     res = client.post("/v1/scan", json=payload)
     assert res.status_code == 422
     assert res.json()["error"] == "INVALID_REQUEST"
+    assert res.json()["retryable"] is False
     assert "4111" not in res.text
 
 
@@ -74,6 +75,7 @@ def test_oversized_body_rejected_before_parsing(client):
     res = client.post("/v1/scan", json={"text": "x" * 5000})
     assert res.status_code == 413
     assert res.json()["decision"] == "BLOCK"
+    assert res.json()["retryable"] is False
 
 
 def test_explain_answers_with_citations(client):
@@ -122,5 +124,7 @@ def test_not_ready_when_policy_corpus_missing(tmp_path, monkeypatch):
             res = c.post("/v1/scan", json={"text": "hello"})
             assert res.status_code == 503
             assert res.json()["decision"] == "BLOCK"
+            assert res.json()["retryable"] is True  # system error: safe to retry later
+            assert res.headers["retry-after"] == "30"
     finally:
         knowledge.default_index.cache_clear()

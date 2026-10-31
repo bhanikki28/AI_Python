@@ -3,6 +3,12 @@
 Endpoints: POST /v1/scan, POST /v1/explain, POST /v1/assist (optional LLM),
 GET /health, GET / (UI).
 Policy decisions (including BLOCK) return 200; the caller must honour `decision`.
+
+Error bodies carry `retryable` so callers know what to do:
+  - business errors (422 invalid request, 413 too large, any BLOCK) -> false: same input,
+    same answer; fix the input instead.
+  - 503 not ready -> true, with Retry-After (another replica or a rollback can succeed).
+  - 500 internal error -> false: unknown fault, the gate stays closed; investigate.
 """
 
 import time
@@ -22,6 +28,7 @@ from pii_gate.logging_setup import configure_logging, get_logger
 from pii_gate.policy import check_rules
 
 STATIC = Path(__file__).parent / "static"
+NOT_READY_RETRY_AFTER_S = 30
 log = get_logger("api")
 
 
@@ -39,7 +46,8 @@ def create_app(
     settings = settings or load_settings()
     configure_logging(settings.log_level)
     llm = llm or assistant.OllamaClient(
-        settings.ollama_url, settings.ollama_model, settings.llm_timeout_s
+        settings.ollama_url, settings.ollama_model, settings.llm_timeout_s,
+        max_attempts=settings.llm_max_attempts,
     )
 
     @asynccontextmanager
@@ -68,7 +76,8 @@ def create_app(
         length = request.headers.get("content-length")
         if length and length.isdigit() and int(length) > settings.max_body_bytes:
             response = JSONResponse(
-                {"error": "PAYLOAD_TOO_LARGE", "decision": "BLOCK"}, status_code=413
+                {"error": "PAYLOAD_TOO_LARGE", "decision": "BLOCK", "retryable": False},
+                status_code=413,
             )
         else:
             response = await call_next(request)
@@ -90,7 +99,9 @@ def create_app(
     async def validation_error(request: Request, exc: RequestValidationError):
         # FastAPI's default echoes the submitted value ("input"), which could be PII.
         detail = [{"loc": e["loc"], "msg": e["msg"], "type": e["type"]} for e in exc.errors()]
-        return JSONResponse({"error": "INVALID_REQUEST", "detail": detail}, status_code=422)
+        return JSONResponse(
+            {"error": "INVALID_REQUEST", "retryable": False, "detail": detail}, status_code=422
+        )
 
     @app.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception):
@@ -98,11 +109,15 @@ def create_app(
             "request_id": getattr(request.state, "request_id", None),
             "error_type": type(exc).__name__,
         }})
-        return JSONResponse({"error": "INTERNAL_ERROR", "decision": "BLOCK"}, status_code=500)
+        return JSONResponse(
+            {"error": "INTERNAL_ERROR", "decision": "BLOCK", "retryable": False}, status_code=500
+        )
 
     def not_ready() -> JSONResponse:
         return JSONResponse(
-            {"error": "SERVICE_NOT_READY", "decision": "BLOCK"}, status_code=503
+            {"error": "SERVICE_NOT_READY", "decision": "BLOCK", "retryable": True},
+            status_code=503,
+            headers={"Retry-After": str(NOT_READY_RETRY_AFTER_S)},
         )
 
     @app.post("/v1/scan")

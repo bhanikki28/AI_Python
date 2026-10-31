@@ -39,6 +39,7 @@ def test_cli_bad_config(monkeypatch, capsys):
 def test_settings_defaults():
     s = load_settings({})
     assert (s.max_chars, s.log_level, s.port) == (10_000, "INFO", 8000)
+    assert s.llm_max_attempts == 3
 
 
 @pytest.mark.parametrize(
@@ -48,6 +49,8 @@ def test_settings_defaults():
         {"PII_GATE_MAX_CHARS": "abc"},
         {"PII_GATE_PORT": "70000"},
         {"PII_GATE_LOG_LEVEL": "LOUD"},
+        {"PII_GATE_LLM_MAX_ATTEMPTS": "0"},
+        {"PII_GATE_LLM_MAX_ATTEMPTS": "10"},
     ],
 )
 def test_invalid_settings_fail_fast(env):

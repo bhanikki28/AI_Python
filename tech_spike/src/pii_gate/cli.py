@@ -61,7 +61,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "assist":
         llm = assistant.OllamaClient(
-            settings.ollama_url, settings.ollama_model, settings.llm_timeout_s
+            settings.ollama_url, settings.ollama_model, settings.llm_timeout_s,
+            max_attempts=settings.llm_max_attempts,
         )
         result = assistant.assist(_read_input(args), llm, max_chars=settings.max_chars)
         print(json.dumps(result.to_dict(), indent=2))

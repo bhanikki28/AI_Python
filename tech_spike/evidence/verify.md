@@ -7,7 +7,7 @@
 | Check | Result |
 |---|---|
 | Lint (`ruff check src tests evals examples`) | clean |
-| Unit and integration tests | **130 passed** locally (Python 3.14); 129 at the Phase 7 CI run (Python 3.11 and 3.13) |
+| Unit and integration tests | **148 passed** locally (Python 3.14); 129 at the Phase 7 CI run (Python 3.11 and 3.13) |
 | Evals | all 6 gated metrics pass (below) |
 | Dependency audit (`make audit`, pip-audit) | no known vulnerabilities |
 | Container smoke (`make docker-smoke`) | PASS: health, ALLOW/REDACT/BLOCK, UI, PII-free container logs, non-root uid 10001 |
@@ -34,15 +34,15 @@
 
 **Evals earned their place.** On the first run all thresholds passed (precision 0.953, recall 0.971), but the failure list exposed two real bugs: BSB vs account mislabelling, and hyphenated dates flagged as numbers. Both were fixed with regression tests. Read the failures, not just the pass/fail line.
 
-## Test inventory (130)
+## Test inventory (148)
 
 | Area | Tests | Highlights |
 |---|---|---|
 | Checksums, detectors, redaction, validation | 50 | false-positive guards, evasion, union-merge, no raw value in findings |
 | Policy, gate, knowledge (RAG) | 24 | strictest wins, bulk, unmapped type fails closed, engine error fails closed, abstain, possessive regression |
-| API, CLI, config, UI | 26 | 422/413/503 paths, **no input echo**, UI static guard, request ID propagation, **log content has no PII**, bad config fails fast |
+| API, CLI, config, UI | 28 | 422/413/503 paths with `retryable` flag and `Retry-After`, **no input echo**, UI static guard, request ID propagation, **log content has no PII**, bad config fails fast |
 | MCP server | 7 | tool annotations, instructions, no PII in tool output, **real stdio subprocess** |
-| Assistant (fake Ollama) | 18 | LLM sees redacted text only, blocked input never sent, verifier redacts or withholds LLM PII, invalid output fails closed, refused/timeout/5xx degrade |
+| Assistant (fake Ollama) | 34 | LLM sees redacted text only, blocked input never sent, verifier redacts or withholds LLM PII, invalid output fails closed; **retry policy**: transient errors retried then succeed, retries bounded, permanent and business errors never retried, backoff bounds, Retry-After honoured and capped, overall deadline respected |
 | Eval metrics, smoke | 5 | span location, partial-leak detection |
 
 ## Where each check runs

@@ -26,6 +26,7 @@ class Settings:
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "llama3.2:3b"
     llm_timeout_s: int = 30
+    llm_max_attempts: int = 3  # transient LLM failures only; business outcomes never retry
 
     @property
     def max_body_bytes(self) -> int:
@@ -61,4 +62,7 @@ def load_settings(env: Mapping[str, str] = os.environ) -> Settings:
         ollama_url=ollama_url,
         ollama_model=env.get("PII_GATE_OLLAMA_MODEL", Settings.ollama_model),
         llm_timeout_s=_int(env, "PII_GATE_LLM_TIMEOUT", Settings.llm_timeout_s, 1, 300),
+        llm_max_attempts=_int(
+            env, "PII_GATE_LLM_MAX_ATTEMPTS", Settings.llm_max_attempts, 1, 5
+        ),
     )

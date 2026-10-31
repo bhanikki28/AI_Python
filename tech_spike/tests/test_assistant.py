@@ -35,7 +35,29 @@ class FakeOllama:
 
     def client(self) -> OllamaClient:
         return OllamaClient("http://fake-ollama", "llama3.2:3b",
-                            transport=httpx.MockTransport(self.handler))
+                            transport=httpx.MockTransport(self.handler), sleep=lambda s: None)
+
+
+class FlakyOllama:
+    """Plays a script of outcomes, one per /api/chat call; records backoff sleeps."""
+
+    def __init__(self, *script, max_attempts: int = 3, timeout_s: float = 30):
+        self.script, self.calls, self.sleeps = list(script), 0, []
+        self.max_attempts, self.timeout_s = max_attempts, timeout_s
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        step = self.script[min(self.calls, len(self.script) - 1)]
+        self.calls += 1
+        if isinstance(step, Exception):
+            raise step
+        if isinstance(step, httpx.Response):
+            return step
+        return httpx.Response(200, json={"message": {"content": json.dumps(GOOD_REPLY)}})
+
+    def client(self) -> OllamaClient:
+        return OllamaClient("http://fake-ollama", "llama3.2:3b", timeout_s=self.timeout_s,
+                            transport=httpx.MockTransport(self.handler),
+                            max_attempts=self.max_attempts, sleep=self.sleeps.append)
 
 
 def test_happy_path_returns_verified_summary():
@@ -94,9 +116,84 @@ def test_verifier_withholds_blocked_output():
     ],
 )
 def test_invalid_llm_output_fails_closed(reply):
-    result = assist("The app keeps crashing.", FakeOllama(reply).client())
+    fake = FakeOllama(reply)
+    result = assist("The app keeps crashing.", fake.client())
     assert result.status == Status.INVALID_OUTPUT
     assert result.summary is None
+    assert len(fake.requests) == 1  # business outcome: never retried
+
+
+def test_withheld_output_is_not_retried():
+    fake = FakeOllama({**GOOD_REPLY, "summary": "Their TFN is 123 456 782."})
+    assert assist("Summarise please.", fake.client()).status == Status.OUTPUT_WITHHELD
+    assert len(fake.requests) == 1
+
+
+@pytest.mark.parametrize(
+    "transient",
+    [
+        httpx.ConnectError("refused"),
+        httpx.ReadTimeout("slow"),
+        httpx.Response(503),
+        httpx.Response(429),
+        httpx.Response(502),
+    ],
+)
+def test_transient_failure_is_retried_then_succeeds(transient):
+    flaky = FlakyOllama(transient, transient, "ok")
+    result = assist("The app keeps crashing.", flaky.client())
+    assert result.status == Status.OK
+    assert result.attempts == 3 and flaky.calls == 3
+    assert len(flaky.sleeps) == 2
+
+
+def test_retries_are_bounded_then_degrade():
+    flaky = FlakyOllama(httpx.ConnectError("refused"))
+    result = assist(f"card {CARD} charged twice", flaky.client())
+    assert result.status == Status.DEGRADED
+    assert flaky.calls == 3 and result.attempts == 3
+    assert "after 3 attempt(s)" in result.reason
+    assert result.gate_result.released_text == "card [CARD_NUMBER] charged twice"
+
+
+@pytest.mark.parametrize(
+    "permanent",
+    [
+        httpx.Response(400),
+        httpx.Response(404),  # model not pulled
+        httpx.Response(500),
+        httpx.Response(200, json={"unexpected": "shape"}),
+        httpx.Response(200, content=b"not json"),
+    ],
+)
+def test_permanent_failure_is_not_retried(permanent):
+    flaky = FlakyOllama(permanent, "ok")
+    result = assist("The app keeps crashing.", flaky.client())
+    assert result.status == Status.DEGRADED
+    assert flaky.calls == 1 and flaky.sleeps == []
+    assert "not retried" in result.reason
+
+
+def test_backoff_is_exponential_with_jitter():
+    flaky = FlakyOllama(httpx.Response(503), max_attempts=4)
+    assist("The app keeps crashing.", flaky.client())
+    assert flaky.calls == 4
+    for delay, full in zip(flaky.sleeps, (0.2, 0.4, 0.8), strict=True):
+        assert full / 2 <= delay <= full
+
+
+@pytest.mark.parametrize(("header", "expected"), [("1", 1.0), ("120", 5.0)])
+def test_retry_after_is_honoured_and_capped(header, expected):
+    flaky = FlakyOllama(httpx.Response(429, headers={"retry-after": header}), "ok")
+    assert assist("The app keeps crashing.", flaky.client()).status == Status.OK
+    assert flaky.sleeps == [expected]
+
+
+def test_no_retry_when_backoff_would_exceed_overall_deadline():
+    flaky = FlakyOllama(httpx.Response(503, headers={"retry-after": "5"}), "ok", timeout_s=2)
+    result = assist("The app keeps crashing.", flaky.client())
+    assert result.status == Status.DEGRADED
+    assert flaky.calls == 1 and flaky.sleeps == []
 
 
 @pytest.mark.parametrize(
